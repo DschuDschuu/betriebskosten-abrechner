@@ -222,9 +222,16 @@ textarea{resize:vertical; min-height:104px; line-height:1.45}
   border-radius:8px; padding:10px 12px; font-size:13px}
 .vorschlag h4{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--accent);
   font-family:"Source Sans 3", sans-serif; font-weight:700; margin:0 0 6px}
-.vorschlag ul{margin:0 0 9px; padding-left:18px}
-.vorschlag li{padding:2px 0; font-variant-numeric:tabular-nums}
 .vorschlag p{margin:0 0 8px; color:var(--muted); font-size:12px}
+.vliste{display:flex; flex-direction:column; gap:2px; max-height:280px; overflow-y:auto;
+  background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:4px}
+.vzeile{display:flex; align-items:center; gap:9px; padding:5px 7px; border-radius:5px; cursor:pointer}
+.vzeile:hover{background:var(--surface-2)}
+.vzeile input{width:16px; height:16px; flex:none; accent-color:var(--accent); margin:0}
+.vtext{flex:1; min-width:0; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.vdet{color:var(--muted)}
+.vbet{font-family:"IBM Plex Mono", monospace; font-size:12.5px; font-weight:600;
+  white-space:nowrap; font-variant-numeric:tabular-nums}
 .busy{font-size:12px; color:var(--accent); font-weight:600}
 .sumrow{display:flex; justify-content:space-between; gap:14px; margin-top:14px; padding-top:12px;
   border-top:1px solid var(--line); font-size:14px}
@@ -532,12 +539,18 @@ var OFIELDS = ["vonD","bisD","objekt","vermieter","zahlhinweis","ortDatum","docN
 var nf = new Intl.NumberFormat("de-DE",{minimumFractionDigits:2, maximumFractionDigits:2});
 function eur(n){ return nf.format(isFinite(n)?n:0) + " €"; }
 function q(n,d){ return new Intl.NumberFormat("de-DE",{maximumFractionDigits:(d==null?2:d)}).format(isFinite(n)?n:0); }
+/* Deutsche Zahlenschreibweise. Der Punkt ist zweideutig: "3.200" meint hier
+   dreitausendzweihundert, "3.2" dagegen drei Komma zwei. Aufgeloest wird das
+   ueber die Form - Punkte, die exakt Dreiergruppen trennen, sind
+   Tausenderpunkte. Ohne diese Regel wuerde aus eingetippten 1.250 EUR
+   stillschweigend 1,25 EUR. */
 function num(v){
-  if (typeof v === "number") return isFinite(v)?v:0;
+  if (typeof v === "number") return isFinite(v) ? v : 0;
   if (v == null) return 0;
-  var s = String(v).trim().replace(/[^\d,.\-]/g,"");
+  var s = String(v).trim().replace(/[^\d,.\-]/g, "");
   if (!s) return 0;
-  if (s.indexOf(",") >= 0) s = s.replace(/\./g,"").replace(",",".");
+  if (s.indexOf(",") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/^-?\d{1,3}(?:\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
   var n = parseFloat(s);
   return isFinite(n) ? n : 0;
 }
@@ -881,7 +894,8 @@ function belegBox(p){
         : "")
     + (kannAnhaengen() && p.datei
         ? '<span class="fileinfo">' + belegLink(p)
-          + (kannAuslesen() ? '<button type="button" class="minibtn b-read">Zahlen auslesen</button>' : "")
+          + '<button type="button" class="minibtn b-muster">Zahlen suchen</button>'
+          + (kannClaude() ? '<button type="button" class="minibtn b-read">Mit Claude auswerten</button>' : "")
           + '<button type="button" class="minibtn b-drop">entfernen</button></span>'
         : "")
     + (busy[p.pid] ? '<span class="busy">' + esc(busy[p.pid]) + "</span>" : "");
@@ -906,6 +920,8 @@ function belegBox(p){
       if (file.files && file.files[0]) attachPdf(p, file.files[0]);
     });
   }
+  var ms = bar.querySelector(".b-muster");
+  if (ms) ms.addEventListener("click", function(){ musterSuche(p); });
   var rd = bar.querySelector(".b-read");
   if (rd) rd.addEventListener("click", function(){ readPdf(p); });
   var dr = bar.querySelector(".b-drop");
@@ -994,26 +1010,50 @@ function syncBeleg(row, b){
 
 function vorschlagBox(p){
   var v = vorschlaege[p.pid], box = document.createElement("div");
+  var muster = v.quelle === "muster";
   box.className = "vorschlag";
-  box.innerHTML = "<h4>Aus der PDF gelesen</h4>"
-    + "<p>Bitte gegen den Beleg prüfen &ndash; erst dann übernehmen. Vorhandene Belegzeilen "
-    + "werden ersetzt.</p><ul>"
-    + v.map(function(b){
-        var d = [];
-        if (num(b.menge)) d.push(q(num(b.menge), 3) + " " + (b.me || "") + " × " + eur(num(b.preis)));
+  box.innerHTML = "<h4>" + (muster ? "In der PDF gefunden" : "Von Claude gelesen") + "</h4>"
+    + "<p>" + (muster
+        ? "Jede Zeile der PDF, in der ein Betrag steht. Welche davon gehören in die "
+          + "Abrechnung, entscheidest du – Zwischensummen und Rechnungsendbeträge stehen "
+          + "hier mit drin."
+        : "Bitte gegen den Beleg prüfen – erst dann übernehmen.")
+      + " Angehakte Zeilen ersetzen die bisherigen Belegzeilen.</p>"
+    + '<div class="vliste">'
+    + v.liste.map(function(t, i){
+        var b = t.beleg, d = [];
+        if (num(b.menge) && num(b.preis)) d.push(q(num(b.menge), 3) + " " + (b.me || "") + " × " + eur(num(b.preis)));
         if (b.von) d.push(dDE(b.von) + (b.bis ? "–" + dDE(b.bis) : ""));
-        return "<li>" + esc(b.text || "Beleg") + (d.length ? " · " + esc(d.join(" · ")) : "")
-          + " → <strong>" + eur(belegBetrag(b)) + "</strong></li>";
+        return '<label class="vzeile"><input type="checkbox" data-i="' + i + '"'
+          + (t.an ? " checked" : "") + ">"
+          + '<span class="vtext">' + esc(b.text || "(ohne Bezeichnung)")
+          + (d.length ? ' <span class="vdet">' + esc(d.join(" · ")) + "</span>" : "")
+          + "</span>"
+          + '<b class="vbet">' + eur(belegBetrag(b)) + "</b></label>";
       }).join("")
-    + "</ul><div class='tools' style='margin-top:0'>"
-    + "<button type='button' class='minibtn v-ok'>Übernehmen</button>"
+    + "</div>"
+    + "<div class='tools' style='margin-top:8px'>"
+    + "<button type='button' class='minibtn v-ok'>Ausgewählte übernehmen</button>"
+    + (muster ? "<button type='button' class='minibtn v-all'>Alle an/aus</button>" : "")
     + "<button type='button' class='minibtn v-no'>Verwerfen</button></div>";
+
+  box.querySelectorAll(".vliste input").forEach(function(cb){
+    cb.addEventListener("change", function(){ v.liste[Number(cb.dataset.i)].an = cb.checked; });
+  });
+  var alle = box.querySelector(".v-all");
+  if (alle) alle.addEventListener("click", function(){
+    var an = !v.liste.every(function(t){ return t.an; });
+    v.liste.forEach(function(t){ t.an = an; });
+    renderPos();
+  });
   box.querySelector(".v-ok").addEventListener("click", function(){
-    p.belege = v.map(function(b){ return newBeleg(b); });
+    var gewaehlt = v.liste.filter(function(t){ return t.an; });
+    if (!gewaehlt.length){ toast("Nichts angehakt"); return; }
+    p.belege = gewaehlt.map(function(t){ return newBeleg(t.beleg); });
     delete vorschlaege[p.pid];
     offenB[p.pid] = true;
     renderPos(); compute();
-    toast("Belegzeilen übernommen – bitte prüfen");
+    toast(gewaehlt.length + " Belegzeile(n) übernommen – bitte prüfen");
   });
   box.querySelector(".v-no").addEventListener("click", function(){
     delete vorschlaege[p.pid]; renderPos();
@@ -1602,26 +1642,40 @@ function dataUrlZuBlob(u){
   for (var k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
   return new Blob([arr], {type:typ});
 }
-var PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-var PDFW   = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+var PDFCDN = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+var pdfBase = null;
 
 /* Anhängen geht überall: online in der Claude-Ablage, sonst auf dem Gerät.
-   Auslesen braucht Claude und fehlt deshalb in der GitHub-Pages-Fassung. */
+   Zahlen suchen geht ebenfalls überall (feste Suchmuster, offline).
+   Die Auswertung durch Claude braucht die Artifact-Fassung. */
 function kannAnhaengen(){ return !!assets || !!window.indexedDB; }
-function kannAuslesen(){ return !!sampler; }
+function kannClaude(){ return !!sampler; }
 
-/* pdf.js wiegt ein paar hundert Kilobyte und wird erst beim ersten
-   Auslesen geholt, nicht bei jedem Seitenaufruf. */
+function ladeSkript(src){
+  return new Promise(function(res, rej){
+    var s = document.createElement("script");
+    s.src = src;
+    s.onload = res;
+    s.onerror = function(){ rej(new Error(src)); };
+    document.head.appendChild(s);
+  });
+}
+/* pdf.js wiegt gut 1,4 MB und wird erst beim ersten Auslesen geholt, nicht
+   bei jedem Seitenaufruf. Bevorzugt aus dem Repo (dort liegt es im
+   Offline-Cache), ersatzweise vom CDN - so laeuft dieselbe Datei auch als
+   Artifact, wo es den Ordner vendor/ nicht gibt. */
 function ladePdfJs(){
   if (window.pdfjsLib) return Promise.resolve();
   if (ladePdfJs._p) return ladePdfJs._p;
-  ladePdfJs._p = new Promise(function(res, rej){
-    var s = document.createElement("script");
-    s.src = PDFLIB;
-    s.onload = function(){ window.pdfjsLib ? res() : rej(new Error("pdfjs")); };
-    s.onerror = function(){ ladePdfJs._p = null; rej(new Error("cdn")); };
-    document.head.appendChild(s);
-  });
+  ladePdfJs._p = ladeSkript("./vendor/pdf.min.js")
+    .then(function(){ pdfBase = "./vendor/"; })
+    .catch(function(){
+      return ladeSkript(PDFCDN + "pdf.min.js").then(function(){ pdfBase = PDFCDN; });
+    })
+    .then(function(){
+      if (!window.pdfjsLib){ ladePdfJs._p = null; throw new Error("pdfjs"); }
+      try{ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfBase + "pdf.worker.min.js"; }catch(e){}
+    }, function(e){ ladePdfJs._p = null; throw e; });
   return ladePdfJs._p;
 }
 
@@ -1660,9 +1714,8 @@ async function attachPdf(p, file){
     toast("Der Beleg konnte nicht gespeichert werden – Speicher voll?");
   }
 }
-async function pdfText(p){
+async function pdfDoc(p){
   await ladePdfJs();
-  try{ pdfjsLib.GlobalWorkerOptions.workerSrc = PDFW; }catch(e){}
   var src;
   if (dateien[p.pid]){
     src = {data:new Uint8Array(await dateien[p.pid].arrayBuffer())};
@@ -1673,14 +1726,146 @@ async function pdfText(p){
   } else if (p.datei && p.datei.id){
     src = {url:"/_blob/" + p.datei.id};
   } else throw new Error("keine Quelle");
-  var doc = await pdfjsLib.getDocument(src).promise;
-  var out = [];
+  return pdfjsLib.getDocument(src).promise;
+}
+
+/* Textelemente nach ihrer Hoehe zu Zeilen zusammenfassen. pdf.js liefert
+   die Schnipsel in Lesereihenfolge, aber ohne Zeilenbegriff - "Biotonne"
+   und "186,00 EUR" waeren sonst getrennt, und damit liesse sich der Betrag
+   keiner Bezeichnung mehr zuordnen. transform[5] ist die y-Position,
+   transform[4] die x-Position. */
+async function pdfZeilen(p){
+  var doc = await pdfDoc(p), zeilen = [];
   for (var i = 1; i <= Math.min(doc.numPages, 12); i++){
     var page = await doc.getPage(i);
     var tc = await page.getTextContent();
-    out.push(tc.items.map(function(x){ return x.str; }).join(" "));
+    var faecher = {};
+    tc.items.forEach(function(it){
+      if (!it.str || !it.str.trim()) return;
+      var k = String(Math.round(it.transform[5] / 3));   // 3 Punkt Toleranz
+      (faecher[k] = faecher[k] || []).push({x:it.transform[4], s:it.str});
+    });
+    Object.keys(faecher).sort(function(a, b){ return b - a; }).forEach(function(k){
+      var t = faecher[k].sort(function(a, b){ return a.x - b.x; })
+        .map(function(o){ return o.s; }).join(" ").replace(/\s+/g, " ").trim();
+      if (t) zeilen.push(t);
+    });
   }
-  return out.join("\n");
+  return zeilen;
+}
+async function pdfText(p){ return (await pdfZeilen(p)).join("\n"); }
+
+/* --- Zahlen ohne KI: feste Suchmuster auf den Zeilen --- */
+var EINH = "l|Liter|m³|m3|cbm|kWh|MWh|m²|qm|Stk|Stück|Einheiten|Pers\\.|Personen|Tage|Monate";
+/* Kein \b hinter der Einheit: nach "m²" oder "m³" steht kein Wortzeichen,
+   ein \b greift dort also nie. Stattdessen "darf kein Buchstabe folgen" -
+   das trennt "210 m²" sauber und verhindert zugleich, dass "l" mitten in
+   einem Wort anschlaegt. */
+var NACH = "(?![A-Za-zÄÖÜäöüß])";
+var ZAHL = "\\d{1,3}(?:\\.\\d{3})+(?:,\\d+)?|\\d+(?:,\\d+)?";
+function zahl(s){ return String(s).replace(/\./g, "").replace(",", "."); }
+function rx(muster, flags){ return new RegExp(muster, flags); }
+
+function musterZeile(z){
+  var menge = "", me = "", preis = "", betrag = "", von = "", bis = "";
+
+  /* Preis je Einheit, beide Schreibweisen:
+     "0,98 EUR/l"  -  Preis zuerst
+     "2.400 l je 0,91 €"  -  Einheit zuerst */
+  var a = z.match(rx("(" + ZAHL + ")\\s*(?:€|EUR)?\\s*(?:/|je|pro)\\s*(" + EINH + ")" + NACH, "i"));
+  var b = a ? null : z.match(rx("(" + EINH + ")" + NACH + "\\s*(?:je|à|a|zu)\\s*(" + ZAHL + ")\\s*(?:€|EUR)?", "i"));
+  if (a){ preis = a[1]; me = a[2]; }
+  else if (b){ me = b[1]; preis = b[2]; }
+
+  /* Menge mit Einheit: "3.200 l", "142.000 kWh", "210 m²" */
+  var mm = z.match(rx("(" + ZAHL + ")\\s*(?:" + EINH + ")" + NACH, "i"));
+  if (mm) menge = mm[1];
+
+  /* Fuer die Betragssuche alles ausblenden, was schon als Menge oder
+     Preis erkannt wurde. Sonst wird "2.400,00 l" als Betrag gelesen und
+     ueberstimmt mit seinem groesseren Wert die echte Zeilensumme. */
+  var rest = z.replace(rx("(?:" + ZAHL + ")\\s*(?:" + EINH + ")" + NACH, "gi"), " ");
+  if (preis) rest = rest.split(preis).join(" ");
+  var kandidaten = (rest.match(/\d{1,3}(?:\.\d{3})+,\d{2}|\d+,\d{2}/g) || [])
+    .map(function(x){ return parseFloat(zahl(x)); })
+    .filter(function(x){ return isFinite(x) && x > 0; });
+  /* Der groesste Wert der Zeile ist die Zeilensumme, kleinere sind
+     Teilbetraege oder Steuersaetze. */
+  if (kandidaten.length) betrag = nf.format(Math.max.apply(null, kandidaten));
+
+  /* Zeitraum "01.01.2025 bis 31.12.2025", sonst das erste Datum */
+  function iso(t, m, j){
+    j = String(j); if (j.length === 2) j = "20" + j;
+    return j + "-" + ("0" + m).slice(-2) + "-" + ("0" + t).slice(-2);
+  }
+  var md = z.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})\s*(?:bis|-|–|—)\s*(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+  if (md){ von = iso(md[1], md[2], md[3]); bis = iso(md[4], md[5], md[6]); }
+  else {
+    var m1 = z.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+    if (m1) von = iso(m1[1], m1[2], m1[3]);
+  }
+
+  /* Ohne Preis je Einheit ist eine Menge nur Beiwerk ("Biotonne 120 l")
+     und darf nicht multipliziert werden - dann zaehlt der Betrag. */
+  if (!preis) menge = "";
+
+  /* Bezeichnung: die Zeile ohne Zahlen, Einheiten und Waehrung.
+     Reihenfolge ist wichtig - die Satzzeichen muessen vor den allein
+     stehenden Einheiten weg, sonst bleibt aus "EUR/m²" ein "m²" stehen. */
+  var text = z
+    /* Zeitspanne als Ganzes entfernen, sonst bleibt das "bis" stehen */
+    .replace(/\d{1,2}\.\d{1,2}\.\d{2,4}\s*(?:bis|-|–|—)\s*\d{1,2}\.\d{1,2}\.\d{2,4}/g, " ")
+    .replace(/\d{1,2}\.\d{1,2}\.\d{2,4}/g, " ")
+    .replace(rx("(?:" + ZAHL + ")\\s*%", "g"), " ")
+    .replace(rx("(?:" + ZAHL + ")\\s*(?:€|EUR)", "gi"), " ")
+    .replace(rx("(?:" + ZAHL + ")\\s*(?:" + EINH + ")" + NACH, "gi"), " ")
+    .replace(rx("(?:" + ZAHL + ")", "g"), " ")
+    .replace(/€|\bEUR\b/gi, " ")
+    .replace(/[|:;/×*]+/g, " ")
+    .replace(rx("(?:^|\\s)(?:" + EINH + ")" + NACH, "gi"), " ")
+    .replace(/\b(?:je|pro|à)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.])/g, "$1")
+    .replace(/^[\s\-–—,.%]+|[\s\-–—,.%]+$/g, "")
+    .trim();
+  if (text.length > 70) text = text.slice(0, 70).trim();
+
+  if (!betrag && !(menge && preis)) return null;
+  return newBeleg({text:text, von:von, bis:bis, menge:menge, me:me, preis:preis,
+    betrag:(menge && preis) ? "" : betrag});
+}
+
+async function musterSuche(p){
+  if (!p.datei){ toast("Erst einen Beleg anhängen"); return; }
+  setBusy(p, "PDF wird gelesen …");
+  var zeilen = [];
+  try{ zeilen = await pdfZeilen(p); }
+  catch(e){
+    setBusy(p, "");
+    toast("Die PDF konnte nicht gelesen werden – vermutlich ein Scan ohne Textebene");
+    return;
+  }
+  if (!zeilen.join("").replace(/\s/g, "").length){
+    setBusy(p, "");
+    toast("Kein Text in der PDF – vermutlich ein Scan. Bitte von Hand eintragen.");
+    return;
+  }
+  var treffer = [];
+  zeilen.forEach(function(z){
+    var b = musterZeile(z);
+    if (b) treffer.push({beleg:b, quelle:z, an:false});
+  });
+  /* Doppelte Zeilen (Kopf-/Fusszeilen auf jeder Seite) einmal zeigen */
+  var gesehen = {};
+  treffer = treffer.filter(function(t){
+    var k = t.quelle.toLowerCase();
+    if (gesehen[k]) return false;
+    gesehen[k] = 1; return true;
+  });
+  setBusy(p, "");
+  if (!treffer.length){ toast("In der PDF waren keine Betraege erkennbar"); return; }
+  vorschlaege[p.pid] = {quelle:"muster", liste:treffer};
+  renderPos(); compute();
 }
 async function readPdf(p){
   if (!p.datei){ toast("Erst eine PDF anhängen"); return; }
@@ -1711,7 +1896,7 @@ async function readPdf(p){
   try{
     var out = await sampler.json(frage, {modelTier:"default"});
     var liste = (out && out.belege) || [];
-    var norm = liste.map(function(b){
+    var norm0 = liste.map(function(b){
       return newBeleg({
         text:String(b.text || ""),
         von:/^\d{4}-\d{2}-\d{2}$/.test(b.von || "") ? b.von : "",
@@ -1723,8 +1908,10 @@ async function readPdf(p){
       });
     }).filter(function(b){ return belegBetrag(b) > 0 || b.text; });
     setBusy(p, "");
-    if (!norm.length){ toast("In der PDF waren keine Einzelposten erkennbar"); return; }
-    vorschlaege[p.pid] = norm;
+    if (!norm0.length){ toast("In der PDF waren keine Einzelposten erkennbar"); return; }
+    /* Von Claude kommt eine bereits gefilterte Liste - daher vorangehakt. */
+    vorschlaege[p.pid] = {quelle:"claude",
+      liste:norm0.map(function(b){ return {beleg:b, quelle:"", an:true}; })};
     renderPos(); compute();
   }catch(e){
     setBusy(p, "");

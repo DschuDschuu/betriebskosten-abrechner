@@ -157,9 +157,47 @@ die Beträge exakt gleich bleiben.
 
 **PDF-Belege.** Das *Anhängen* funktioniert überall: In der Claude-Artifact-
 Fassung landet die Datei in deren Ablage (`assets`), sonst in `IndexedDB` auf
-dem Gerät. Das *Auslesen* der Zahlen braucht Claude (`sample`) und fehlt hier
-auf GitHub Pages – der Knopf erscheint deshalb gar nicht erst. Gescannte PDFs
-ohne Textebene lassen sich ohnehin nicht auslesen.
+dem Gerät.
+
+Zum Auslesen gibt es zwei Wege:
+
+| | *Zahlen suchen* | *Mit Claude auswerten* |
+|---|---|---|
+| Verfahren | feste Suchmuster | Sprachmodell |
+| offline | ja | nein |
+| überall verfügbar | ja | nur als Artifact |
+| Auswahl | alle Zeilen mit Betrag, nichts vorausgewählt | gefilterte Liste, vorausgewählt |
+
+*Zahlen suchen* arbeitet zeilenweise und erkennt Betrag, Menge mit Einheit,
+Preis je Einheit und Datumsspannen. Es versteht **nicht**, welche Zahl gemeint
+ist – Zwischensummen und der Rechnungsendbetrag erscheinen mit in der Liste
+und sind bewusst nicht angehakt. Beide Wege enden in derselben Auswahlliste;
+übernommen wird nur, was du ankreuzt.
+
+`pdf.js` liegt unter `vendor/` im Repo (Apache-2.0, Mozilla), damit das auch
+ohne Netz geht, und steht in der `FILES`-Liste des Service Workers. Wird es
+dort nicht gefunden – etwa in der Artifact-Fassung, wo es `vendor/` nicht gibt
+–, lädt es ersatzweise von cdnjs. Gescannte PDFs ohne Textebene lassen sich
+auf keinem der beiden Wege auslesen.
+
+### Zwei Fallen in der Zeilenerkennung
+
+`pdf.js` liefert Textschnipsel ohne Zeilenbegriff. `pdfZeilen()` gruppiert sie
+deshalb über ihre y-Position (`transform[5]`, 3 Punkt Toleranz) und sortiert
+innerhalb der Zeile nach x. Ohne das stünde „Biotonne“ getrennt von
+„186,00 EUR“ und der Betrag ließe sich keiner Bezeichnung zuordnen.
+
+Hinter Einheiten steht **kein** `\b`, sondern `(?![A-Za-zÄÖÜäöüß])`. Nach `m²`
+oder `m³` folgt kein Wortzeichen, ein `\b` greift dort also nie – `2,10 EUR/m²`
+wurde damit gar nicht erkannt.
+
+### Tausenderpunkt
+
+`num()` löst die Zweideutigkeit des Punktes über die Form auf: Trennt er exakt
+Dreiergruppen (`3.200`, `1.250.000`), ist es ein Tausenderpunkt; sonst ein
+Dezimalpunkt (`3.2`, `0.98`). Vorher wurde aus eingetippten `1.250 €`
+stillschweigend `1,25 €` – das betraf **jedes** Zahlenfeld, nicht nur die
+PDF-Erkennung.
 
 **Riskanteste Stelle:** `distribute()` – sie entscheidet über jeden Euro auf
 jedem Mieterblatt. Gegenprobe ist immer Schritt 5: Die Spaltensumme muss den

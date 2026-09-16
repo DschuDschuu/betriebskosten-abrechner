@@ -1,5 +1,5 @@
 /* Minimaler Offline-Cache. Beim Ändern der Dateien CACHE hochzählen. */
-var CACHE = 'betriebskosten-v1';
+var CACHE = 'betriebskosten-v2';
 var FILES = [
   './',
   './index.html',
@@ -8,7 +8,12 @@ var FILES = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './icons/icon-512-maskable.png'
+  './icons/icon-512-maskable.png',
+  /* pdf.js bewusst mit im Vorrat, obwohl es 1,4 MB sind: "Zahlen suchen"
+     soll auch im Funkloch gehen. Ohne diese beiden Dateien waere die
+     Mustersuche erst nach dem ersten Onlinegebrauch offline verfuegbar. */
+  './vendor/pdf.min.js',
+  './vendor/pdf.worker.min.js'
 ];
 
 /* GitHub Pages liefert alles mit "Cache-Control: max-age=600" aus. Ein
