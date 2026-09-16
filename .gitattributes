@@ -1,0 +1,5 @@
+# Zeilenenden normalisieren, aber Fremdbibliotheken unangetastet lassen.
+# core.autocrlf=true wuerde sie beim Klonen sonst auf CRLF umschreiben.
+* text=auto
+vendor/** -text
+*.png binary
