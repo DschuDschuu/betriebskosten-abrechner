@@ -9,3 +9,6 @@ desktop.ini
 # "git add -A" versehentlich mitgehen.
 # (manifest.webmanifest endet nicht auf .json und ist davon nicht betroffen.)
 *.json
+
+# Ausnahme: Konfiguration des lokalen Entwicklungsservers, keine Nutzdaten.
+!.claude/launch.json

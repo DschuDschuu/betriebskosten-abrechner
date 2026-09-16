@@ -163,8 +163,15 @@ GitHub Pages aus `main` / root. Änderungen gehen per `git push` live, Pages
 baut ein bis zwei Minuten.
 
 Der Service Worker arbeitet **network-first**: online kommt immer die aktuelle
-Fassung, offline die zuletzt gespeicherte. Werden Dateien aus der `FILES`-Liste
-in `sw.js` geändert oder hinzugefügt, dort `CACHE` hochzählen (aktuell `v1`).
+Fassung, offline die zuletzt gespeicherte.
+
+`CACHE` in `sw.js` muss hochgezählt werden, wenn sich die **`FILES`-Liste
+selbst** ändert – also Einträge dazukommen oder wegfallen (aktuell `v2`, beim
+Hinzukommen von `pdf.js`). Ändert sich nur der *Inhalt* einer bereits
+gelisteten Datei, ist kein Hochzählen nötig: Network-first holt sie ohnehin
+frisch und überschreibt dabei den Cache-Eintrag. Ein unnötiges Hochzählen
+zwingt jedes Gerät zum kompletten Neuladen des Vorrats – mit `pdf.js` sind das
+rund 1,5 MB.
 
 Rollback: `git revert HEAD && git push`.
 
