@@ -1779,14 +1779,21 @@ function init(){
   el("tabEingabe").addEventListener("click", function(){ showTab("eingabe"); });
   el("tabBlatt").addEventListener("click", function(){ showTab("blatt"); });
   el("btnBack").addEventListener("click", function(){ showTab("eingabe"); });
+  /* window.print() muss im selben Durchlauf wie der Klick aufgerufen werden.
+     Steht ein setTimeout dazwischen, sieht der Browser keine Nutzergeste
+     mehr und blockt den Druckdialog still ab - das Blatt wird synchron
+     aufgebaut, die Verzoegerung brachte also ohnehin nichts. */
   el("btnDrucken").addEventListener("click", function(){
-    showTab("blatt"); setTimeout(function(){ window.print(); }, 120);
+    showTab("blatt");
+    window.print();
   });
   el("btnDrucken2").addEventListener("click", function(){
-    renderSheets(false); setTimeout(function(){ window.print(); }, 60);
+    renderSheets(false);
+    window.print();
   });
   el("btnPrintAll").addEventListener("click", function(){
-    renderSheets(true); setTimeout(function(){ window.print(); }, 60);
+    renderSheets(true);
+    window.print();
   });
   el("btnDownload").addEventListener("click", downloadSheet);
   el("btnSave").addEventListener("click", doSave);
