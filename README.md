@@ -93,7 +93,9 @@ Rechtsberatung ist das Programm nicht.
 ## Daten
 
 Alles bleibt auf dem Gerät. Eingaben werden laufend im `localStorage` des
-Browsers gesichert, benannte Abrechnungen ebenso.
+Browsers gesichert, benannte Abrechnungen ebenso. Hinterlegte Beleg-PDFs
+liegen in `IndexedDB` – `localStorage` kann nur Text und ist bei rund 5 MB
+voll. Hochgeladen wird nichts: Die PDF verlässt das Gerät nie.
 
 **Das ist keine Sicherung.** iOS/Safari räumt den Speicher von Websites auf,
 die längere Zeit nicht geöffnet wurden – als App auf dem Home-Bildschirm ist
@@ -101,8 +103,14 @@ das entschärft, aber nicht ausgeschlossen. Ein geleerter Browser-Cache löscht
 die Daten ebenfalls.
 
 Der verlässliche Weg ist **Als Datei sichern**: Das legt die ganze Abrechnung
-als `.json` ab (iPad: in „Dateien“). **Datei laden** holt sie zurück – auch auf
-einem anderen Gerät. Am Ende einer Abrechnung einmal exportieren.
+als `.json` ab (iPad: in „Dateien“) – **einschließlich der hinterlegten
+Beleg-PDFs**, die als Data-URL eingebettet werden. Die Datei wird dadurch groß,
+ist dafür aber vollständig. **Datei laden** holt alles zurück, auch auf einem
+anderen Gerät. Am Ende einer Abrechnung einmal exportieren.
+
+Ein entfernter Beleg wird sofort aus `IndexedDB` gelöscht. Wird dagegen eine
+ganze Position gelöscht, bleibt ihre PDF als Waise liegen – bewusst, weil
+dieselbe Datei noch zu einer anderen gespeicherten Abrechnung gehören kann.
 
 Exporte enthalten Namen und Anschriften von Mietern. `.gitignore` hält `*.json`
 deshalb aus dem Repository heraus; das bitte nicht aufweichen.
@@ -147,10 +155,11 @@ Fassung: Die damalige Wohnung wird Einheit 1, aus der Differenz zur damaligen
 Gesamtfläche entsteht eine Einheit „Übrige Einheiten“ (nicht abrechnen), damit
 die Beträge exakt gleich bleiben.
 
-**PDF-Belege** (`assets`, `sample`) funktionieren nur in der Claude-Artifact-
-Fassung, nicht hier auf GitHub Pages – dort fehlen Ablage und Auswertung. Die
-Knöpfe erscheinen deshalb gar nicht erst. Gescannte PDFs ohne Textebene lassen
-sich ohnehin nicht auslesen.
+**PDF-Belege.** Das *Anhängen* funktioniert überall: In der Claude-Artifact-
+Fassung landet die Datei in deren Ablage (`assets`), sonst in `IndexedDB` auf
+dem Gerät. Das *Auslesen* der Zahlen braucht Claude (`sample`) und fehlt hier
+auf GitHub Pages – der Knopf erscheint deshalb gar nicht erst. Gescannte PDFs
+ohne Textebene lassen sich ohnehin nicht auslesen.
 
 **Riskanteste Stelle:** `distribute()` – sie entscheidet über jeden Euro auf
 jedem Mieterblatt. Gegenprobe ist immer Schritt 5: Die Spaltensumme muss den

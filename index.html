@@ -667,7 +667,8 @@ function loadState(s, saved){
     state.pos.push({pid:p.pid || uid("p"), name:p.name || "", gesamt:p.gesamt || "",
       key:KEYS[p.key] ? p.key : "flaeche", einheit:p.einheit || "",
       belege:(p.belege || []).map(function(b){ var n = newBeleg(b); n.bid = b.bid || n.bid; return n; }),
-      datei:(p.datei && p.datei.id) ? {id:p.datei.id, name:p.datei.name || "Beleg.pdf"} : null});
+      datei:(p.datei && p.datei.id)
+        ? {id:p.datei.id, name:p.datei.name || "Beleg.pdf", lokal:!!p.datei.lokal} : null});
   });
   if (!state.pos.length) state.pos.push(newPos());
   (s.whg || []).forEach(function(w){
@@ -683,6 +684,8 @@ function loadState(s, saved){
   renderUnits(); renderPos(); renderStrip(); renderWhgForm();
   compute();
   applyAccordion(!!saved);
+  /* Belege liegen in IndexedDB; ihre Adressen kommen asynchron nach. */
+  ladeBelegUrls().then(function(){ renderPos(); compute(); }, function(){});
 }
 
 /* ---------------- Rechenkern ---------------- */
@@ -856,6 +859,12 @@ function renderPos(){
   });
 }
 
+function belegLink(p){
+  var href = p.datei.lokal ? blobUrls[p.datei.id] : ("/_blob/" + p.datei.id);
+  if (!href) return "<span>" + esc(p.datei.name) + "</span>";
+  return '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(p.datei.name) + "</a>";
+}
+
 /* Werkzeugleiste + aufklappbare Belegzeilen einer Position */
 function belegBox(p){
   var box = document.createElement("div");
@@ -865,15 +874,14 @@ function belegBox(p){
   bar.innerHTML =
     '<button type="button" class="minibtn b-toggle' + (offenB[p.pid] ? " on" : "") + '">'
       + (n ? "Belege (" + n + ")" : "+ Belege aufschlüsseln") + "</button>"
-    + (pdfMoeglich()
+    + (kannAnhaengen()
         ? '<button type="button" class="minibtn b-pdf">'
-          + (p.datei ? "PDF austauschen" : "PDF anhängen") + "</button>"
+          + (p.datei ? "Beleg austauschen" : "Beleg anhängen (PDF)") + "</button>"
           + '<input type="file" accept="application/pdf,.pdf" class="b-file" hidden>'
         : "")
-    + (pdfMoeglich() && p.datei
-        ? '<span class="fileinfo"><a href="/_blob/' + esc(p.datei.id) + '" target="_blank" rel="noopener">'
-          + esc(p.datei.name) + "</a>"
-          + '<button type="button" class="minibtn b-read">Zahlen auslesen</button>'
+    + (kannAnhaengen() && p.datei
+        ? '<span class="fileinfo">' + belegLink(p)
+          + (kannAuslesen() ? '<button type="button" class="minibtn b-read">Zahlen auslesen</button>' : "")
           + '<button type="button" class="minibtn b-drop">entfernen</button></span>'
         : "")
     + (busy[p.pid] ? '<span class="busy">' + esc(busy[p.pid]) + "</span>" : "");
@@ -902,7 +910,15 @@ function belegBox(p){
   if (rd) rd.addEventListener("click", function(){ readPdf(p); });
   var dr = bar.querySelector(".b-drop");
   if (dr) dr.addEventListener("click", function(){
-    p.datei = null; delete vorschlaege[p.pid]; renderPos(); compute();
+    if (p.datei && p.datei.lokal){
+      var id = p.datei.id;
+      idbDel(id).catch(function(){});
+      if (blobUrls[id]){ URL.revokeObjectURL(blobUrls[id]); delete blobUrls[id]; }
+    }
+    p.datei = null;
+    delete dateien[p.pid];
+    delete vorschlaege[p.pid];
+    renderPos(); compute();
   });
   return box;
 }
@@ -1419,7 +1435,20 @@ async function doOpen(id){
 /* Sicherungskopie als Datei – der einzige Weg, der einen Gerätewechsel
    oder ein geleertes Safari-Datenverzeichnis übersteht. */
 async function exportJson(){
-  var daten = JSON.stringify(snapshot(), null, 2);
+  var snap = snapshot(), belege = {}, anzahl = 0;
+  for (var i = 0; i < state.pos.length; i++){
+    var p = state.pos[i];
+    if (!(p.datei && p.datei.lokal)) continue;
+    try{
+      var rec = await idbGet(p.datei.id);
+      if (!rec) continue;
+      belege[p.datei.id] = {name:rec.name, type:rec.type,
+        data:await blobZuDataUrl(belegBlob(rec))};
+      anzahl++;
+    }catch(e){}
+  }
+  if (anzahl) snap.belege = belege;
+  var daten = JSON.stringify(snap, null, 2);
   var name = (state.f.docName || "Betriebskostenabrechnung")
     .replace(/[^\wäöüÄÖÜß \-.]/g, "_").trim() + ".json";
   var dl = null;
@@ -1435,19 +1464,31 @@ async function exportJson(){
     a.href = url; a.download = name; a.style.display = "none";
     document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 2000);
-    toast("Datei gespeichert: " + name);
+    toast(anzahl ? "Datei gespeichert, mit " + anzahl + " Beleg(en)" : "Datei gespeichert: " + name);
   }catch(e){ toast("Die Datei konnte nicht erzeugt werden"); }
 }
 function importJson(file){
   var rd = new FileReader();
-  rd.onload = function(){
+  rd.onload = async function(){
     var s;
     try{ s = JSON.parse(String(rd.result)); }
     catch(e){ toast("Das ist keine gültige Abrechnungsdatei"); return; }
     if (!s || (!s.pos && !s.whg)){ toast("In der Datei steckt keine Abrechnung"); return; }
+    var n = 0;
+    if (s.belege){
+      for (var id in s.belege){
+        try{
+          var b = dataUrlZuBlob(s.belege[id].data);
+          await idbPut({id:id, name:s.belege[id].name || "Beleg.pdf",
+            type:s.belege[id].type || "application/pdf", buf:await b.arrayBuffer()});
+          n++;
+        }catch(e){}
+      }
+      delete s.belege;
+    }
     s.id = null;
     loadState(s, true);
-    toast("Geladen – zum Behalten bitte speichern");
+    toast("Geladen" + (n ? " samt " + n + " Beleg(en)" : "") + " – zum Behalten bitte speichern");
   };
   rd.onerror = function(){ toast("Die Datei konnte nicht gelesen werden"); };
   rd.readAsText(file);
@@ -1482,13 +1523,92 @@ async function downloadSheet(){
 }
 
 /* ---------------- PDF-Beleg ---------------- */
-var assets = null, sampler = null, dateien = {};
+var assets = null, sampler = null, dateien = {}, blobUrls = {};
+
+/* Belege auf dem Gerät: IndexedDB statt localStorage, weil der nur Text
+   kann und bei rund 5 MB voll ist. Gespeichert wird ein ArrayBuffer und
+   kein Blob - Safari hatte mit Blobs in IndexedDB lange Probleme. */
+var IDBNAME = "bk-belege", IDBSTORE = "pdf";
+function idbOpen(){
+  return new Promise(function(res, rej){
+    if (!window.indexedDB) return rej(new Error("kein IndexedDB"));
+    var rq = indexedDB.open(IDBNAME, 1);
+    rq.onupgradeneeded = function(){
+      var d = rq.result;
+      if (!d.objectStoreNames.contains(IDBSTORE)) d.createObjectStore(IDBSTORE, {keyPath:"id"});
+    };
+    rq.onsuccess = function(){ res(rq.result); };
+    rq.onerror = function(){ rej(rq.error); };
+  });
+}
+function idbPut(rec){
+  return idbOpen().then(function(d){
+    return new Promise(function(res, rej){
+      var tx = d.transaction(IDBSTORE, "readwrite");
+      tx.objectStore(IDBSTORE).put(rec);
+      tx.oncomplete = function(){ d.close(); res(true); };
+      tx.onerror = function(){ d.close(); rej(tx.error); };
+    });
+  });
+}
+function idbGet(id){
+  return idbOpen().then(function(d){
+    return new Promise(function(res, rej){
+      var tx = d.transaction(IDBSTORE, "readonly"), rq = tx.objectStore(IDBSTORE).get(id);
+      rq.onsuccess = function(){ res(rq.result || null); };
+      tx.onerror = function(){ rej(tx.error); };
+      tx.oncomplete = function(){ d.close(); };
+    });
+  });
+}
+function idbDel(id){
+  return idbOpen().then(function(d){
+    return new Promise(function(res, rej){
+      var tx = d.transaction(IDBSTORE, "readwrite");
+      tx.objectStore(IDBSTORE).delete(id);
+      tx.oncomplete = function(){ d.close(); res(true); };
+      tx.onerror = function(){ d.close(); rej(tx.error); };
+    });
+  });
+}
+function belegBlob(rec){
+  return new Blob([rec.buf], {type:rec.type || "application/pdf"});
+}
+/* Adressen für die Links einmal vorbereiten, damit das Antippen eines
+   Belegs nicht auf eine asynchrone Leseoperation warten muss. */
+async function ladeBelegUrls(){
+  for (var i = 0; i < state.pos.length; i++){
+    var p = state.pos[i];
+    if (p.datei && p.datei.lokal && !blobUrls[p.datei.id]){
+      try{
+        var rec = await idbGet(p.datei.id);
+        if (rec) blobUrls[p.datei.id] = URL.createObjectURL(belegBlob(rec));
+      }catch(e){}
+    }
+  }
+}
+function blobZuDataUrl(blob){
+  return new Promise(function(res, rej){
+    var r = new FileReader();
+    r.onload = function(){ res(String(r.result)); };
+    r.onerror = function(){ rej(r.error); };
+    r.readAsDataURL(blob);
+  });
+}
+function dataUrlZuBlob(u){
+  var i = String(u).indexOf(",");
+  var typ = (String(u).slice(0, i).match(/:(.*?);/) || [null, "application/pdf"])[1];
+  var bin = atob(String(u).slice(i + 1)), arr = new Uint8Array(bin.length);
+  for (var k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
+  return new Blob([arr], {type:typ});
+}
 var PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
 var PDFW   = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-/* PDF-Funktionen gibt es nur dort, wo auch etwas damit passieren kann:
-   Ablegen braucht die Claude-Dateiablage, Auslesen braucht Claude selbst. */
-function pdfMoeglich(){ return !!(assets || sampler); }
+/* Anhängen geht überall: online in der Claude-Ablage, sonst auf dem Gerät.
+   Auslesen braucht Claude und fehlt deshalb in der GitHub-Pages-Fassung. */
+function kannAnhaengen(){ return !!assets || !!window.indexedDB; }
+function kannAuslesen(){ return !!sampler; }
 
 /* pdf.js wiegt ein paar hundert Kilobyte und wird erst beim ersten
    Auslesen geholt, nicht bei jedem Seitenaufruf. */
@@ -1512,32 +1632,47 @@ function setBusy(p, txt){
 async function attachPdf(p, file){
   if (file.size > 20 * 1024 * 1024){ toast("Die Datei ist größer als 20 MB"); return; }
   dateien[p.pid] = file;
-  if (!assets){
-    toast("PDF-Anhänge gibt es nur in der Online-Version – Auslesen geht trotzdem");
-    p.datei = {id:"", name:file.name};
-    renderPos(); compute();
-    readPdf(p);
+  if (assets){
+    setBusy(p, "PDF wird hochgeladen …");
+    try{
+      var r = await assets.upload(file);
+      p.datei = {id:r.id, name:file.name, lokal:false};
+      setBusy(p, "");
+      toast("PDF hinterlegt: " + file.name);
+    }catch(e){
+      setBusy(p, "");
+      toast("Upload fehlgeschlagen – die Datei ist nicht gespeichert");
+    }
     return;
   }
-  setBusy(p, "PDF wird hochgeladen …");
+  /* Ohne Claude-Ablage: auf dem Gerät speichern, nichts verlässt das iPad. */
+  setBusy(p, "Beleg wird gespeichert …");
   try{
-    var r = await assets.upload(file);
-    p.datei = {id:r.id, name:file.name};
+    var fid = uid("f");
+    await idbPut({id:fid, name:file.name, type:file.type || "application/pdf",
+      buf:await file.arrayBuffer()});
+    p.datei = {id:fid, name:file.name, lokal:true};
+    blobUrls[fid] = URL.createObjectURL(file);
     setBusy(p, "");
-    toast("PDF hinterlegt: " + file.name);
+    toast("Beleg auf dem Gerät hinterlegt");
   }catch(e){
-    p.datei = {id:"", name:file.name};
     setBusy(p, "");
-    toast("Upload fehlgeschlagen – die Datei ist nicht gespeichert");
+    toast("Der Beleg konnte nicht gespeichert werden – Speicher voll?");
   }
 }
 async function pdfText(p){
   await ladePdfJs();
   try{ pdfjsLib.GlobalWorkerOptions.workerSrc = PDFW; }catch(e){}
   var src;
-  if (dateien[p.pid]) src = {data:new Uint8Array(await dateien[p.pid].arrayBuffer())};
-  else if (p.datei && p.datei.id) src = {url:"/_blob/" + p.datei.id};
-  else throw new Error("keine Quelle");
+  if (dateien[p.pid]){
+    src = {data:new Uint8Array(await dateien[p.pid].arrayBuffer())};
+  } else if (p.datei && p.datei.lokal){
+    var rec = await idbGet(p.datei.id);
+    if (!rec) throw new Error("Beleg nicht gefunden");
+    src = {data:new Uint8Array(rec.buf)};
+  } else if (p.datei && p.datei.id){
+    src = {url:"/_blob/" + p.datei.id};
+  } else throw new Error("keine Quelle");
   var doc = await pdfjsLib.getDocument(src).promise;
   var out = [];
   for (var i = 1; i <= Math.min(doc.numPages, 12); i++){
