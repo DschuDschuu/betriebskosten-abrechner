@@ -48,12 +48,51 @@ eine App im eigenen Fenster und funktioniert auch ohne Netz.
 | Wohnfläche | m² der Wohnung an der Gesamtfläche | ja |
 | Personenzahl | gemeldete Personen | ja |
 | Wohneinheiten | Einheiten je Wohnung | ja |
+| Heizkosten (HeizkostenV) | zweigeteilt, siehe unten | nur Grundkostenanteil |
 | Verbrauch | gemessene Menge je Wohnung (Zähler) | nein |
 | Direktzuordnung | Betrag wird der Wohnung unverändert zugeschrieben | nein |
 
 Der **Zeitanteil** greift, wenn eine Wohnung nur einen Teil des Zeitraums
 bewohnt war: Anteil × Nutzungstage ÷ Tage im Abrechnungszeitraum. Auf Verbrauch
 wirkt er nicht, weil ein Zähler den Zeitraum bereits abbildet.
+
+### Heizkosten
+
+Heiz- und Warmwasserkosten dürfen **nicht** vollständig nach Verbrauch
+verteilt werden: § 7 HeizkostenV verlangt 50–70 % nach Verbrauch, den Rest als
+Grundkosten nach Wohnfläche. Der Schlüssel *Heizkosten (HeizkostenV)* macht
+genau das, mit einstellbarem Verbrauchsanteil (Vorgabe 70 %). Liegt der Wert
+außerhalb von 50–70 %, erscheint eine Warnung; ebenso, wenn eine Position mit
+„Heizung“ oder „Warmwasser“ im Namen auf den reinen Verbrauchsschlüssel
+gestellt ist.
+
+Beide Teile werden **getrennt** verteilt und **einzeln** centgenau gerundet,
+damit auch die im Abrechnungsblatt einzeln ausgewiesenen Grund- und
+Verbrauchskosten in der Summe aufgehen. Das Blatt zeigt sie als zwei
+eingerückte Zeilen unter der Position, wie in einer Heizkostenabrechnung
+üblich.
+
+### Umlagefähigkeit
+
+Jede Position hat den Haken **umlagefähig** (voreingestellt an). Ohne ihn
+zählt die Position in die Gesamtkosten des Objekts, wird aber keinem Mieter
+berechnet und erscheint nicht auf dem Abrechnungsblatt – ihr voller Betrag
+steht in der Verteilungsübersicht unter *Vermieter*.
+
+So lässt sich das Haus vollständig erfassen, ohne dass Verwaltungskosten,
+Instandhaltung oder Reparaturen versehentlich auf einem Mieterblatt landen
+(§ 1 Abs. 2 BetrKV). *Standardpositionen einfügen* legt diese vier gleich
+richtig markiert an.
+
+### Neues Jahr
+
+*Neues Jahr aus dieser Abrechnung* übernimmt das Gerüst und leert die Zahlen:
+Zeitraum und Belegdaten rücken ein Jahr weiter, Objekt, Einheiten, Mieter,
+Flächen, Positionen samt Schlüssel und die Bezeichnungen der Belegzeilen
+bleiben. Geleert werden alle Beträge, Verbrauchswerte und Korrekturen; die
+angehängten Belege werden gelöst, weil sie zum alten Jahr gehören. Die alte
+Abrechnung bleibt gespeichert – das Ergebnis ist ein neuer Eintrag, kein
+Überschreiben.
 
 ### Belegzeilen
 
@@ -75,9 +114,10 @@ Ganzes nach ihrem Umlageschlüssel, nicht die einzelne Belegzeile.
 
 ## Was das Programm bewusst nicht prüft
 
-**Umlagefähigkeit.** Ob eine Position überhaupt auf den Mieter umgelegt werden
-darf, entscheidet die eintragende Person. Verwaltungskosten, Instandhaltung und
-Reparaturen gehören nach § 1 Abs. 2 BetrKV nicht in die Abrechnung.
+**Umlagefähigkeit.** Ob eine Position auf den Mieter umgelegt werden darf,
+entscheidet die eintragende Person. Der Haken *umlagefähig* setzt die
+Entscheidung nur um, er trifft sie nicht – er ist voreingestellt an, auch bei
+einer frei benannten Position.
 
 **Leerstand.** Eine Einheit kann als *nicht abrechnen* markiert werden. Sie
 zählt weiter in die Umlageschlüssel hinein, bekommt aber kein Blatt; ihr Anteil
@@ -127,6 +167,11 @@ Fassung, offline die zuletzt gespeicherte. Werden Dateien aus der `FILES`-Liste
 in `sw.js` geändert oder hinzugefügt, dort `CACHE` hochzählen (aktuell `v1`).
 
 Rollback: `git revert HEAD && git push`.
+
+Zum Entwickeln: `powershell -ExecutionPolicy Bypass -File .\dev-server.ps1`,
+dann `http://localhost:8124`. Nötig, weil Service Worker und Manifest unter
+`file://` nicht laufen – und weil sich Häkchen und Knöpfe nur auf einer echt
+ausgelieferten Seite testen lassen.
 
 ### Warum `cache: "reload"` im Service Worker
 

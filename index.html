@@ -262,6 +262,8 @@ table.mat td{padding:6px 8px; border-bottom:1px solid var(--line); text-align:ri
 table.mat td.name{white-space:normal; min-width:150px}
 table.mat tr.tot td{font-weight:700; border-top:1.5px solid var(--line-2); border-bottom:0}
 table.mat th.vm, table.mat td.vm{color:var(--muted); background:var(--surface-2)}
+table.mat tr.nu td{color:var(--muted)}
+table.mat tr.nu em{font-style:normal; font-size:11.5px}
 
 .side{position:sticky; top:104px; display:flex; flex-direction:column; gap:14px}
 .panel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden}
@@ -480,6 +482,7 @@ table.mat th.vm, table.mat td.vm{color:var(--muted); background:var(--surface-2)
           </label>
         </div>
         <div class="tools">
+          <button class="btn" id="btnFolgejahr">Neues Jahr aus dieser Abrechnung</button>
           <button class="btn" id="btnExport">Als Datei sichern</button>
           <button class="btn" id="btnImport">Datei laden</button>
           <input type="file" id="fileImport" accept="application/json,.json" hidden>
@@ -506,6 +509,7 @@ table.mat th.vm, table.mat td.vm{color:var(--muted); background:var(--surface-2)
         <div class="objbox">
           <h3>Gesamtes Objekt</h3>
           <div><span>Gesamtkosten</span><b id="oGes">0,00 &euro;</b></div>
+          <div><span>davon umlagefähig</span><b id="oUml">0,00 &euro;</b></div>
           <div><span>auf Mieter verteilt</span><b id="oMie">0,00 &euro;</b></div>
           <div><span>Vermieteranteil</span><b id="oVer">0,00 &euro;</b></div>
         </div>
@@ -534,17 +538,26 @@ var KEYS = {
   flaeche:   {label:"Wohnfläche",      einheit:"m²",    zeit:true,  auto:true},
   personen:  {label:"Personenzahl",    einheit:"Pers.", zeit:true,  auto:true},
   einheiten: {label:"Wohneinheiten",   einheit:"WE",    zeit:true,  auto:true},
+  /* Heiz- und Warmwasserkosten duerfen nach § 7 HeizkostenV NICHT
+     vollstaendig nach Verbrauch verteilt werden: 50-70 % nach Verbrauch,
+     der Rest als Grundkosten nach Wohnflaeche. */
+  heiz:      {label:"Heizkosten (HeizkostenV)", einheit:"", zeit:false, auto:false},
   verbrauch: {label:"Verbrauch",       einheit:"",      zeit:false, auto:false},
   direkt:    {label:"Direktzuordnung", einheit:"€",zeit:false, auto:false}
 };
+/* Dritter Eintrag false = von Haus aus nicht umlagefaehig (§ 1 Abs. 2
+   BetrKV). Sie stehen mit in der Liste, damit das Objekt vollstaendig
+   erfasst werden kann, ohne dass sie auf Mieterblaettern landen. */
 var STANDARD = [
-  ["Heizung und Warmwasser","verbrauch"], ["Wasser / Abwasser","personen"],
+  ["Heizung und Warmwasser","heiz"], ["Wasser / Abwasser","personen"],
   ["Müllabfuhr","personen"], ["Hausmeister","flaeche"],
   ["Gebäudeversicherung","flaeche"], ["Grundsteuer","flaeche"],
   ["Allgemeinstrom","flaeche"], ["Treppenhausreinigung","flaeche"],
   ["Schornsteinfeger","einheiten"], ["Gartenpflege","flaeche"],
   ["Straßenreinigung / Winterdienst","flaeche"], ["Aufzug","flaeche"],
-  ["Kabel / Breitbandanschluss","einheiten"], ["Sach- und Haftpflichtversicherung","flaeche"]
+  ["Kabel / Breitbandanschluss","einheiten"], ["Sach- und Haftpflichtversicherung","flaeche"],
+  ["Verwaltungskosten","flaeche",false], ["Instandhaltung und Reparaturen","flaeche",false],
+  ["Kontoführung / Bankgebühren","flaeche",false], ["Mietausfallwagnis","flaeche",false]
 ];
 var SECS = ["sec1","sec2","sec3","sec4","sec5"], AUTOSECS = ["sec1","sec2","sec3","sec4"];
 var OFIELDS = ["vonD","bisD","objekt","vermieter","zahlhinweis","ortDatum","docName"];
@@ -581,7 +594,7 @@ function days(a,b){
 function el(id){ return document.getElementById(id); }
 function uid(p){ return p + Math.random().toString(36).slice(2,8); }
 function newPos(name, key){ return {pid:uid("p"), name:name||"", gesamt:"", key:key||"flaeche",
-  einheit:"", belege:[], datei:null}; }
+  einheit:"", vAnteil:"70", umlage:true, belege:[], datei:null}; }
 function newBeleg(o){
   var b = {bid:uid("b"), text:"", von:"", bis:"", menge:"", me:"", preis:"", betrag:""};
   if (o) Object.keys(o).forEach(function(k){ if (k in b) b[k] = o[k]; });
@@ -603,7 +616,7 @@ function aktiv(){ return state.whg[state.aktiv] || state.whg[0]; }
 
 function beispiel(){
   var p = [
-    newPos("Heizung und Warmwasser","verbrauch"), newPos("Wasser / Abwasser","personen"),
+    newPos("Heizung und Warmwasser","heiz"), newPos("Wasser / Abwasser","personen"),
     newPos("Müllabfuhr","personen"), newPos("Hausmeister","flaeche"),
     newPos("Gebäudeversicherung","flaeche"), newPos("Grundsteuer","flaeche"),
     newPos("Allgemeinstrom","flaeche"), newPos("Treppenhausreinigung","flaeche"),
@@ -692,6 +705,7 @@ function loadState(s, saved){
   (s.pos || []).forEach(function(p){
     state.pos.push({pid:p.pid || uid("p"), name:p.name || "", gesamt:p.gesamt || "",
       key:KEYS[p.key] ? p.key : "flaeche", einheit:p.einheit || "",
+      vAnteil:p.vAnteil || "70", umlage:p.umlage !== false,
       belege:(p.belege || []).map(function(b){ var n = newBeleg(b); n.bid = b.bid || n.bid; return n; }),
       datei:(p.datei && p.datei.id)
         ? {id:p.datei.id, name:p.datei.name || "Beleg.pdf", lokal:!!p.datei.lokal} : null});
@@ -753,42 +767,87 @@ function bezugWhg(p, w){
    Einheiten mit dem größten Nachkommaanteil. So ergibt die Summe der
    Einzelanteile exakt den verteilten Betrag – keine Rundungsdifferenz,
    die im Abrechnungsblatt als Vermieteranteil auftauchen würde. */
+/* Verteilt einen Betrag centgenau entlang der rohen Anteile: abrunden,
+   dann die Restcents an die groessten Nachkommaanteile. */
+function centGenau(raw){
+  var total = raw.reduce(function(a, b){ return a + b; }, 0);
+  var fl = raw.map(function(x){ return Math.floor(x * 100 + 1e-6); });
+  var restC = Math.round(total * 100) - fl.reduce(function(a, b){ return a + b; }, 0);
+  if (restC > 0){
+    var ord = raw.map(function(x, i){
+      var c = x * 100 + 1e-6;
+      return {i:i, fr:c - Math.floor(c)};
+    }).sort(function(a, b){ return b.fr - a.fr; });
+    for (var k = 0; k < restC && k < ord.length; k++) fl[ord[k].i] += 1;
+  }
+  return fl.map(function(c){ return c / 100; });
+}
+function heizAnteil(p){ return Math.min(Math.max(num(p.vAnteil), 0), 100); }
+
 function distribute(s){
   var D = {};
   state.pos.forEach(function(p){
-    var g = posGesamt(p, s), bg = bezugGes(p, s), raw = [], total = 0;
-    state.whg.forEach(function(w){
-      var x = 0;
-      if (p.key === "direkt") x = num(w.werte[p.pid]);
-      else if (bg > 0) x = g * (bezugWhg(p, w) / bg) * (KEYS[p.key].zeit ? zeit(w).f : 1);
-      if (!(x > 0)) x = 0;
-      raw.push(x); total += x;
-    });
-    var fl = raw.map(function(x){ return Math.floor(x * 100 + 1e-6); });
-    var restC = Math.round(total * 100) - fl.reduce(function(a, b){ return a + b; }, 0);
-    if (restC > 0){
-      var ord = raw.map(function(x, i){
-        var c = x * 100 + 1e-6;
-        return {i:i, fr:c - Math.floor(c)};
-      }).sort(function(a, b){ return b.fr - a.fr; });
-      for (var k = 0; k < restC && k < ord.length; k++) fl[ord[k].i] += 1;
+    var g = posGesamt(p, s), by = {}, mie = 0, teile = null, werte;
+
+    /* Nicht umlagefaehige Positionen zaehlen in die Gesamtkosten des
+       Objekts, werden aber keinem Mieter berechnet. */
+    if (p.umlage === false){
+      state.whg.forEach(function(w){ by[w.wid] = 0; });
+      D[p.pid] = {gesamt:r2(g), by:by, mieter:0, vermieter:r2(g), umlage:false, teile:null};
+      return;
     }
-    var by = {}, mie = 0;
+
+    if (p.key === "heiz"){
+      /* Zwei getrennte Verteilungen: der Verbrauchsteil nach Zaehler, die
+         Grundkosten nach Wohnflaeche und zeitanteilig. Beide Teile werden
+         einzeln centgenau verteilt, damit auch die im Blatt ausgewiesenen
+         Teilbetraege in der Summe aufgehen. */
+      var vq = heizAnteil(p) / 100;
+      var gV = g * vq, gG = g - gV;
+      var bV = s.bez[p.pid] || 0, bF = s.flaeche;
+      var rohV = [], rohG = [];
+      state.whg.forEach(function(w){
+        var xv = bV > 0 ? gV * (num(w.werte[p.pid]) / bV) : 0;
+        var xg = bF > 0 ? gG * (num(w.flaeche) / bF) * zeit(w).f : 0;
+        rohV.push(xv > 0 ? xv : 0);
+        rohG.push(xg > 0 ? xg : 0);
+      });
+      var wv = centGenau(rohV), wg = centGenau(rohG);
+      teile = {};
+      werte = state.whg.map(function(w, i){
+        teile[w.wid] = {verbrauch:wv[i], grund:wg[i]};
+        return r2(wv[i] + wg[i]);
+      });
+    } else {
+      var bg = bezugGes(p, s), roh = [];
+      state.whg.forEach(function(w){
+        var x = 0;
+        if (p.key === "direkt") x = num(w.werte[p.pid]);
+        else if (bg > 0) x = g * (bezugWhg(p, w) / bg) * (KEYS[p.key].zeit ? zeit(w).f : 1);
+        roh.push(x > 0 ? x : 0);
+      });
+      werte = centGenau(roh);
+    }
+
     state.whg.forEach(function(w, i){
-      var v = fl[i] / 100;
-      by[w.wid] = v;
-      if (!w.leer) mie += v;
+      by[w.wid] = werte[i];
+      if (!w.leer) mie += werte[i];
     });
     mie = r2(mie);
-    D[p.pid] = {gesamt:r2(g), by:by, mieter:mie, vermieter:r2(r2(g) - mie)};
+    D[p.pid] = {gesamt:r2(g), by:by, mieter:mie, vermieter:r2(r2(g) - mie),
+      umlage:true, teile:teile};
   });
   return D;
 }
 function model(){
-  var s = sums(), D = distribute(s), ges = 0, mie = 0;
-  state.pos.forEach(function(p){ ges += D[p.pid].gesamt; mie += D[p.pid].mieter; });
-  ges = r2(ges); mie = r2(mie);
-  return {s:s, D:D, obj:{ges:ges, mieter:mie, vermieter:r2(ges - mie)}};
+  var s = sums(), D = distribute(s), ges = 0, umlegbar = 0, mie = 0;
+  state.pos.forEach(function(p){
+    ges += D[p.pid].gesamt;
+    if (D[p.pid].umlage) umlegbar += D[p.pid].gesamt;
+    mie += D[p.pid].mieter;
+  });
+  ges = r2(ges); umlegbar = r2(umlegbar); mie = r2(mie);
+  return {s:s, D:D, obj:{ges:ges, umlegbar:umlegbar, mieter:mie, vermieter:r2(ges - mie)}};
 }
 function anteil(p, w, D){ return (D[p.pid] && D[p.pid].by[w.wid]) || 0; }
 function whgTotals(w, D){
@@ -880,7 +939,7 @@ function renderPos(){
     });
     syncPos(row, p);
     wrap.appendChild(row);
-    if (p.key !== "direkt") wrap.appendChild(belegBox(p));
+    wrap.appendChild(belegBox(p));
     box.appendChild(wrap);
   });
 }
@@ -898,8 +957,19 @@ function belegBox(p){
   var bar = document.createElement("div");
   bar.className = "pbtns";
   bar.innerHTML =
-    '<button type="button" class="minibtn b-toggle' + (offenB[p.pid] ? " on" : "") + '">'
-      + (n ? "Belege (" + n + ")" : "+ Belege aufschlüsseln") + "</button>"
+    '<label class="check" title="Nicht umlagefähig sind u. a. Verwaltung, Instandhaltung und Reparaturen (§ 1 Abs. 2 BetrKV)">'
+      + '<input type="checkbox" class="b-umlage"' + (p.umlage !== false ? " checked" : "")
+      + "> umlagefähig</label>"
+    + (p.key === "heiz"
+        ? '<label class="check">Verbrauchsanteil <input class="b-vant" inputmode="decimal" value="'
+          + esc(p.vAnteil) + '" style="width:58px"> %</label>'
+        : "")
+    /* Bei Direktzuordnung ergeben sich die Gesamtkosten aus den Betraegen
+       der Einheiten - eine Belegaufschluesselung waere dort sinnlos. */
+    + (p.key !== "direkt"
+        ? '<button type="button" class="minibtn b-toggle' + (offenB[p.pid] ? " on" : "") + '">'
+          + (n ? "Belege (" + n + ")" : "+ Belege aufschlüsseln") + "</button>"
+        : "")
     + (kannAnhaengen()
         ? '<button type="button" class="minibtn b-pdf">'
           + (p.datei ? "Beleg austauschen" : "Beleg anhängen (PDF)") + "</button>"
@@ -920,7 +990,14 @@ function belegBox(p){
 
   if (vorschlaege[p.pid]) box.appendChild(vorschlagBox(p));
 
-  bar.querySelector(".b-toggle").addEventListener("click", function(){
+  bar.querySelector(".b-umlage").addEventListener("change", function(e){
+    p.umlage = e.target.checked;
+    compute();
+  });
+  var vant = bar.querySelector(".b-vant");
+  if (vant) vant.addEventListener("input", function(e){ p.vAnteil = e.target.value; compute(); });
+  var tg = bar.querySelector(".b-toggle");
+  if (tg) tg.addEventListener("click", function(){
     offenB[p.pid] = !offenB[p.pid];
     if (offenB[p.pid] && !(p.belege || []).length){ p.belege = [newBeleg()]; }
     renderPos(); compute();
@@ -1170,8 +1247,13 @@ function renderMat(m){
       return "<td>" + eur(a) + "</td>";
     }).join("");
     tGes += e.gesamt; tVm += e.vermieter;
-    return '<tr><td class="name">' + esc(p.name || "–") + "</td><td>" + eur(e.gesamt) + "</td><td>"
-      + esc(KEYS[p.key].label) + "</td>" + cells + '<td class="vm">' + eur(e.vermieter) + "</td></tr>";
+    var schl = e.umlage
+      ? esc(KEYS[p.key].label) + (p.key === "heiz" ? " " + q(heizAnteil(p), 0) + "/"
+          + q(100 - heizAnteil(p), 0) : "")
+      : "<em>nicht umlagefähig</em>";
+    return '<tr' + (e.umlage ? "" : ' class="nu"') + '><td class="name">' + esc(p.name || "–")
+      + "</td><td>" + eur(e.gesamt) + "</td><td>" + schl + "</td>"
+      + cells + '<td class="vm">' + eur(e.vermieter) + "</td></tr>";
   }).join("");
   var tot = '<tr class="tot"><td>Summe</td><td>' + eur(r2(tGes)) + "</td><td></td>"
     + tWhg.map(function(x){ return "<td>" + eur(r2(x)) + "</td>"; }).join("")
@@ -1263,6 +1345,7 @@ function compute(){
   el("chipLab").textContent = (w.name || "Einheit") + " · " + lab;
   el("chipVal").textContent = eur(Math.abs(t.saldo));
   el("oGes").textContent = eur(o.ges);
+  el("oUml").textContent = eur(o.umlegbar);
   el("oMie").textContent = eur(o.mieter);
   el("oVer").textContent = eur(o.vermieter);
 
@@ -1288,9 +1371,20 @@ function compute(){
   var warn = [];
   if (!(s.flaeche > 0)) warn.push("Keine Wohnflächen erfasst – flächenbezogene Positionen bleiben bei 0 €.");
   state.pos.forEach(function(p){
+    if (p.umlage === false) return;
     if (num(p.gesamt) > 0 && !(bezugGes(p, s) > 0))
       warn.push("„" + (p.name || "Position ohne Namen") + "“: Für "
         + KEYS[p.key].label + " ist bei keiner Einheit ein Wert hinterlegt.");
+    if (p.key === "heiz"){
+      var va = heizAnteil(p);
+      if (va < 50 || va > 70)
+        warn.push("„" + (p.name || "Heizkosten") + "“: Der Verbrauchsanteil von "
+          + q(va, 0) + " % liegt außerhalb der nach § 7 HeizkostenV zulässigen 50 bis 70 %.");
+    }
+    if (p.key === "verbrauch" && /heiz|warmwasser|wärme|waerme/i.test(p.name || ""))
+      warn.push("„" + p.name + "“ wird vollständig nach Verbrauch verteilt. "
+        + "Heiz- und Warmwasserkosten verlangen nach § 7 HeizkostenV eine Aufteilung "
+        + "– dafür gibt es den Schlüssel „Heizkosten (HeizkostenV)“.");
   });
   if (o.vermieter > 0.5 && o.ges > 0)
     warn.push("Nicht umgelegt: " + eur(o.vermieter) + " ("
@@ -1309,12 +1403,26 @@ function compute(){
 function sheetHtml(w, m){
   var s = m.s, D = m.D, o = m.obj, f = state.f, t = whgTotals(w, D), z = zeit(w);
   var nach = t.saldo > 0.004, gut = t.saldo < -0.004, belZeigen = f.belegeZeigen !== "0";
-  var body = state.pos.map(function(p){
+  /* Nur umlagefaehige Positionen gehoeren auf das Mieterblatt. */
+  var body = state.pos.filter(function(p){ return p.umlage !== false; }).map(function(p){
     var k = KEYS[p.key], g = posGesamt(p, s), bg = bezugGes(p, s), bw = bezugWhg(p, w);
-    var eh = k.auto ? k.einheit : (p.key === "verbrauch" ? (p.einheit || "") : "");
+    var eh = k.auto ? k.einheit : ((p.key === "verbrauch" || p.key === "heiz") ? (p.einheit || "") : "");
     var verh = p.key === "direkt" ? "direkt zugeordnet"
       : (bg > 0 ? q(bw) + " / " + q(bg) + (eh ? " " + eh : "") : "–");
     var zt = (k.zeit && z.f < 0.9999) ? q(z.f * 100, 1) + " %" : "–";
+    /* Heizkosten: Grund- und Verbrauchsanteil getrennt ausweisen, wie in
+       einer Heizkostenabrechnung ueblich. */
+    var teil = "";
+    if (p.key === "heiz" && D[p.pid] && D[p.pid].teile){
+      var t2 = D[p.pid].teile[w.wid] || {verbrauch:0, grund:0};
+      var va = heizAnteil(p);
+      verh = bg > 0 ? q(bw) + " / " + q(bg) + (eh ? " " + eh : "") : "–";
+      teil = '<tr class="bel"><td>Grundkosten ' + q(100 - va, 0)
+          + " % nach Wohnfläche" + (z.f < 0.9999 ? ", zeitanteilig" : "") + "</td>"
+          + '<td class="n">' + eur(t2.grund) + '</td><td colspan="4"></td></tr>'
+        + '<tr class="bel"><td>Verbrauchskosten ' + q(va, 0) + " % nach Zähler</td>"
+          + '<td class="n">' + eur(t2.verbrauch) + '</td><td colspan="4"></td></tr>';
+    }
     var bel = "";
     if (belZeigen && (p.belege || []).length){
       bel = p.belege.map(function(b){
@@ -1330,7 +1438,7 @@ function sheetHtml(w, m){
     return "<tr><td>" + esc(p.name || "–") + "</td>"
       + '<td class="n">' + eur(g) + "</td><td>" + esc(k.label) + "</td>"
       + '<td class="n">' + esc(verh) + '</td><td class="n">' + zt + "</td>"
-      + '<td class="n">' + eur(anteil(p, w, D)) + "</td></tr>" + bel;
+      + '<td class="n">' + eur(anteil(p, w, D)) + "</td></tr>" + teil + bel;
   }).join("");
   return '<div class="sheet">'
     + '<div class="s-top"><div>' + nl2br(f.vermieter || "Vermieter").split("<br>").join(" · ") + "</div>"
@@ -1353,7 +1461,7 @@ function sheetHtml(w, m){
       + '<th>Kostenposition</th><th class="n">Gesamtkosten Objekt</th><th>Umlageschlüssel</th>'
       + '<th class="n">Ihr Anteil / Gesamt</th><th class="n">Zeitanteil</th><th class="n">Ihr Anteil</th>'
       + "</tr></thead><tbody>" + body
-      + '<tr class="tot"><td>Summe</td><td class="n">' + eur(o.ges)
+      + '<tr class="tot"><td>Summe</td><td class="n">' + eur(o.umlegbar)
       + '</td><td></td><td></td><td></td><td class="n">' + eur(t.ant) + "</td></tr>"
       + "</tbody></table></div>"
     + '<div class="s-final">'
@@ -1476,6 +1584,45 @@ async function doOpen(id){
     st.id = id; loadState(st, true);
     toast("Geladen: " + (rec.name || ""));
   }catch(e){ toast("Die gespeicherten Daten sind beschädigt"); }
+}
+
+/* Folgejahr: Gerüst behalten, Zahlen leeren. Übernommen werden Objekt,
+   Einheiten, Mieter, Flächen, Positionen samt Schlüssel und Belegzeilen-
+   Bezeichnungen. Geleert werden alle Beträge, Verbräuche und Zählerwerte
+   sowie die angehängten Belege - die gehören zum alten Jahr. */
+function jahrPlus(iso, n){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return iso || "";
+  var p = iso.split("-");
+  return (Number(p[0]) + n) + "-" + p[1] + "-" + p[2];
+}
+function folgejahr(){
+  var alt = snapshot(), vonNeu = jahrPlus(alt.f.vonD, 1), bisNeu = jahrPlus(alt.f.bisD, 1);
+  if (!vonNeu || !bisNeu){ toast("Erst den Abrechnungszeitraum ausfüllen"); return; }
+  var jahrAlt = String(alt.f.vonD).slice(0, 4), jahrNeu = String(vonNeu).slice(0, 4);
+
+  alt.id = null;
+  alt.f.vonD = vonNeu; alt.f.bisD = bisNeu;
+  alt.f.ortDatum = "";
+  alt.f.docName = (alt.f.docName || "Abrechnung").indexOf(jahrAlt) >= 0
+    ? alt.f.docName.split(jahrAlt).join(jahrNeu)
+    : (alt.f.docName + " " + jahrNeu);
+
+  alt.pos.forEach(function(p){
+    p.gesamt = "";
+    p.datei = null;
+    (p.belege || []).forEach(function(b){
+      b.menge = ""; b.preis = ""; b.betrag = "";
+      b.von = jahrPlus(b.von, 1); b.bis = jahrPlus(b.bis, 1);
+    });
+  });
+  alt.whg.forEach(function(w){
+    w.nutzVon = vonNeu; w.nutzBis = bisNeu;
+    w.vzKorr = "";
+    Object.keys(w.werte || {}).forEach(function(k){ w.werte[k] = ""; });
+  });
+
+  loadState(alt, false);
+  toast("Gerüst für " + jahrNeu + " übernommen – Beträge und Verbräuche sind leer");
 }
 
 /* Sicherungskopie als Datei – der einzige Weg, der einen Gerätewechsel
@@ -1905,7 +2052,8 @@ function init(){
     STANDARD.forEach(function(x){
       if (!have[x[0].toLowerCase()]){
         var p = newPos(x[0], x[1]);
-        if (x[1] === "verbrauch") p.einheit = "kWh";
+        if (x[1] === "verbrauch" || x[1] === "heiz") p.einheit = "kWh";
+        if (x[2] === false) p.umlage = false;
         state.pos.push(p);
       }
     });
@@ -1935,6 +2083,7 @@ function init(){
   el("btnDownload").addEventListener("click", downloadSheet);
   el("btnSave").addEventListener("click", doSave);
   el("btnDel").addEventListener("click", doDelete);
+  el("btnFolgejahr").addEventListener("click", folgejahr);
   el("btnExport").addEventListener("click", exportJson);
   el("btnImport").addEventListener("click", function(){ el("fileImport").click(); });
   el("fileImport").addEventListener("change", function(e){
