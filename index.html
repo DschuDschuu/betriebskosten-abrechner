@@ -50,7 +50,20 @@ img{max-width:100%}
 html{-webkit-text-size-adjust:100%}
 body{margin:0; background:var(--paper); color:var(--ink);
   font-family:"Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size:15px; line-height:1.5}
+  font-size:15px; line-height:1.5;
+  /* Nimmt Safari die Wartezeit auf einen Doppeltipp - ohne das reagiert
+     jeder Knopf rund 300 ms zu spaet und fuehlt sich nach Webseite an. */
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent}
+/* Auf Touch-Geraeten zoomt Safari beim Antippen eines Eingabefeldes
+   automatisch hinein, sobald dessen Schrift kleiner als 16px ist. Das ist
+   der Sprung, der sich nach Webseite anfuehlt. Am Schreibtisch bleibt es
+   bei der kompakteren Groesse. */
+@media (pointer: coarse){
+  input, select, textarea, .brow input{font-size:16px}
+  .minibtn{padding:7px 12px; font-size:13px}
+  .del{padding:8px}
+}
 /* iPad im Querformat / mit Notch: seitliche Sicherheitsabstände beachten */
 .topbar-in, .strip-in, .wrap{
   padding-left:max(22px, env(safe-area-inset-left));
