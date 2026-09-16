@@ -4,7 +4,8 @@ desktop.ini
 *.log
 
 # Abrechnungsdaten gehoeren niemals ins Repo: sie enthalten Namen und
-# Anschriften von Mietern. Exporte aus "Als Datei sichern" landen sonst
-# versehentlich auf GitHub.
+# Anschriften von Mietern - und seit dem Einbetten der Belege auch die
+# Rechnungs-PDFs. Exporte aus "Als Datei sichern" wuerden sonst bei einem
+# "git add -A" versehentlich mitgehen.
+# (manifest.webmanifest endet nicht auf .json und ist davon nicht betroffen.)
 *.json
-!manifest.webmanifest
