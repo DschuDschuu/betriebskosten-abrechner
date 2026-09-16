@@ -123,6 +123,21 @@ button.btn.ghost:hover{border-color:var(--line-2); color:var(--ink)}
 body.noside .cols{grid-template-columns:minmax(0,1fr)}
 body.noside .side{display:none}
 @media (max-width:1040px){ .cols{grid-template-columns:1fr} .side{order:-1; position:static} }
+/* Auf dem Handy nimmt festgeklebte Bedienung spuerbar Eingabeflaeche weg.
+   Die Kopfzeile scrollt deshalb mit; oben bleibt nur die Wohnungsleiste,
+   weil die beim Eintippen gebraucht wird und ohnehin schon den Saldo
+   jeder Wohnung anzeigt. */
+@media (max-width:700px){
+  .topbar{position:static}
+  .strip{top:0}
+  .strip-in{padding-block:7px}
+  .ustab{padding:5px 11px}
+  .ustab .un{font-size:13px}
+  .wrap{padding-block:14px 48px}
+  details.card > summary{padding:12px 14px}
+  .secbody{padding:2px 14px 16px}
+  section.card{padding:14px}
+}
 
 details.card, section.card{background:var(--surface); border:1px solid var(--line);
   border-radius:var(--radius); margin-bottom:14px; overflow:hidden}
