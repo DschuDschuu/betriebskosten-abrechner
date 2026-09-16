@@ -159,20 +159,17 @@ die Beträge exakt gleich bleiben.
 Fassung landet die Datei in deren Ablage (`assets`), sonst in `IndexedDB` auf
 dem Gerät.
 
-Zum Auslesen gibt es zwei Wege:
+*Zahlen suchen* liest die Textebene der PDF zeilenweise und erkennt über feste
+Suchmuster Betrag, Menge mit Einheit, Preis je Einheit und Datumsspannen. Es
+versteht **nicht**, welche Zahl gemeint ist – Zwischensummen und der
+Rechnungsendbetrag erscheinen mit in der Liste und sind bewusst nicht
+angehakt. Übernommen wird nur, was angekreuzt ist.
 
-| | *Zahlen suchen* | *Mit Claude auswerten* |
-|---|---|---|
-| Verfahren | feste Suchmuster | Sprachmodell |
-| offline | ja | nein |
-| überall verfügbar | ja | nur als Artifact |
-| Auswahl | alle Zeilen mit Betrag, nichts vorausgewählt | gefilterte Liste, vorausgewählt |
-
-*Zahlen suchen* arbeitet zeilenweise und erkennt Betrag, Menge mit Einheit,
-Preis je Einheit und Datumsspannen. Es versteht **nicht**, welche Zahl gemeint
-ist – Zwischensummen und der Rechnungsendbetrag erscheinen mit in der Liste
-und sind bewusst nicht angehakt. Beide Wege enden in derselben Auswahlliste;
-übernommen wird nur, was du ankreuzt.
+**Kein Sprachmodell, bewusst.** Eine frühere Fassung konnte die PDF zusätzlich
+von Claude auswerten lassen. Das ist auf Julias ausdrücklichen Wunsch wieder
+entfernt worden: Das Werkzeug soll ohne KI auskommen. Nicht wieder vorschlagen.
+Die Folge ist, dass die Erkennung dumm, aber nachvollziehbar ist – jede
+gefundene Zahl steht so in der PDF, und die Auswahl trifft ein Mensch.
 
 `pdf.js` liegt unter `vendor/` im Repo (Apache-2.0, Mozilla), damit das auch
 ohne Netz geht, und steht in der `FILES`-Liste des Service Workers. Wird es
