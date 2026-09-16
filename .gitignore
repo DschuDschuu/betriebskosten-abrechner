@@ -1,0 +1,10 @@
+Thumbs.db
+desktop.ini
+.DS_Store
+*.log
+
+# Abrechnungsdaten gehoeren niemals ins Repo: sie enthalten Namen und
+# Anschriften von Mietern. Exporte aus "Als Datei sichern" landen sonst
+# versehentlich auf GitHub.
+*.json
+!manifest.webmanifest
