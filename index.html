@@ -122,7 +122,7 @@ button.btn.ghost:hover{border-color:var(--line-2); color:var(--ink)}
 .cols{display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:20px; align-items:start}
 body.noside .cols{grid-template-columns:minmax(0,1fr)}
 body.noside .side{display:none}
-@media (max-width:1040px){ .cols{grid-template-columns:1fr} .side{order:-1; position:static} }
+@media (max-width:1040px){ .cols{grid-template-columns:1fr} .side{order:-1} }
 /* Auf dem Handy nimmt festgeklebte Bedienung spuerbar Eingabeflaeche weg.
    Die Kopfzeile scrollt deshalb mit; oben bleibt nur die Wohnungsleiste,
    weil die beim Eintippen gebraucht wird und ohnehin schon den Saldo
@@ -280,7 +280,13 @@ table.mat th.vm, table.mat td.vm{color:var(--muted); background:var(--surface-2)
 table.mat tr.nu td{color:var(--muted)}
 table.mat tr.nu em{font-style:normal; font-size:11.5px}
 
-.side{position:sticky; top:104px; display:flex; flex-direction:column; gap:14px}
+/* Kein "position:sticky" in der Grundregel: Die Aufhebung fuer schmale
+   Fenster steht weiter oben im Stylesheet und wuerde bei gleicher
+   Spezifitaet verlieren - das Ergebnisfeld klebte dadurch auch auf dem
+   Handy und legte sich ueber die Eingabefelder. Festkleben deshalb nur
+   dort einschalten, wo es hingehoert. */
+.side{display:flex; flex-direction:column; gap:14px}
+@media (min-width:1041px){ .side{position:sticky; top:104px} }
 .panel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden}
 .phead{display:flex; align-items:center; gap:10px; padding:13px 12px 0 16px}
 .phead h2{font-size:14px; margin-right:auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
